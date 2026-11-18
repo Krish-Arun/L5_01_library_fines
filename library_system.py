@@ -1,5 +1,6 @@
 import json
-import os
+import ast
+import operator
 from datetime import datetime
 
 # Global state
@@ -18,8 +19,8 @@ def return_book(student_id, book_id):
         loans[student_id].remove(book_id)
         if len(loans[student_id]) == 0:
             del loans[student_id]
-    except:
-        pass
+    except (KeyError, ValueError):
+        print("No such loan to return:", student_id, book_id)
 
 def calculate_fine(days_overdue):
     return days_overdue * FINE_PER_DAY
@@ -42,7 +43,26 @@ def save_records(file="loans.json"):
     f.close()
 
 def fine_from_rule(rule, days):
-    return eval(rule.replace("days", str(days)))
+    """Safely evaluate a simple arithmetic fine rule such as "days * 2 + 10"."""
+    ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+    }
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.Name) and node.id == "days":
+            return days
+        if isinstance(node, ast.BinOp) and type(node.op) in ops:
+            return ops[type(node.op)](_eval(node.left), _eval(node.right))
+        raise ValueError("Unsupported expression in fine rule")
+
+    return _eval(ast.parse(rule, mode="eval"))
 
 def print_report():
     print("Loan Report")
